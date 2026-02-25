@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>寶貝的瘦身與晚餐計劃</title>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+    <style>
+        :root { --primary: #ff6b6b; --secondary: #f43f5e; --bg: #f8f9fa; }
+        body { font-family: -apple-system, sans-serif; background: var(--bg); margin: 0; padding: 20px; transition: 0.3s; }
+        
+        /* 導航列 */
+        .main-nav { display: flex; gap: 10px; justify-content: center; margin-bottom: 20px; position: sticky; top: 0; z-index: 100; background: var(--bg); padding: 10px 0; }
+        .nav-btn { flex: 1; max-width: 150px; padding: 12px; border-radius: 20px; border: none; font-weight: bold; cursor: pointer; background: white; color: #888; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .nav-btn.active { background: var(--primary); color: white; }
+
+        /* 通用卡片樣式 */
+        .card { background: white; border-radius: 25px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); margin-bottom: 20px; max-width: 500px; margin-left: auto; margin-right: auto; }
+        .hidden { display: none; }
+
+        /* 晚餐模組專用 */
+        .option-card { background: #fffcfc; border-radius: 15px; padding: 15px; margin-bottom: 15px; border-left: 5px solid var(--secondary); text-align: left; }
+        .go-btn { background: #000; color: white; width: 100%; padding: 15px; border-radius: 15px; font-weight: bold; cursor: pointer; border: none; }
+        
+        /* 瘦身計劃專用 */
+        .day-dot { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #eee; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; }
+        .day-dot.success { background: #51cf66; color: white; border-color: #51cf66; }
+        .day-dot.cheat { background: var(--primary); color: white; border-color: var(--primary); }
+    </style>
+</head>
+<body>
+
+    <div class="main-nav">
+        <button id="btn-slim" class="nav-btn active" onclick="showPage('slim')">📋 瘦身計劃</button>
+        <button id="btn-dinner" class="nav-btn" onclick="showPage('dinner')">🍽️ 晚餐模組</button>
+    </div>
+
+    <div id="page-slim" class="page-content">
+        <div class="card" style="text-align: center;">
+            <h1 style="color:var(--primary); margin:0;">🍫 寶貝瘦身計劃</h1>
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <div style="flex:1; background:#f1f3f5; padding:10px; border-radius:15px;">
+                    <small>預計領賞</small><br><b id="totalBonus" style="color:#51cf66; font-size:1.2rem;">$0</b>
+                </div>
+                <div style="flex:1; background:#f1f3f5; padding:10px; border-radius:15px;">
+                    <small>累計罰款</small><br><b id="totalFine" style="color:var(--primary); font-size:1.2rem;">$0</b>
+                </div>
+            </div>
+        </div>
+        <div id="slim-app-content"></div>
+    </div>
+
+    <div id="page-dinner" class="page-content hidden">
+        <div class="card">
+            <h2 style="margin-top:0;">🍽️ 晚餐吃什麼？</h2>
+            <div id="dinner-result"></div>
+            <button class="go-btn" id="askAiBtn" onclick="askAI()">🚀 幫我準備清單</button>
+            <p id="ai-log" style="font-size:0.7rem; color:#ccc; margin-top:10px;"></p>
+        </div>
+    </div>
+
+    <script>
+        // --- Firebase 設定 ---
+        const firebaseConfig = {
+            apiKey: "AIzaSyA0ihW3ZPIrEHLPay1_psV_qrUn9jqAtuU",
+            authDomain: "babyhan-11286.firebaseapp.com",
+            databaseURL: "https://babyhan-11286-default-rtdb.firebaseio.com",
+            projectId: "babyhan-11286",
+            storageBucket: "babyhan-11286.firebasestorage.app",
+            appId: "1:972062726412:web:ef33e8cfb60305f388d129"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database().ref('dietData_Final_Fixed');
+
+        let dietData = { weekBonus: 1000, totalFine: 0, weeks: [] };
+
+        // --- API 金鑰設定 (雙金鑰) ---
+        const KEYS = ["AIzaSyBpW9OBq7lr_CPauCfsZi2TACR2nRr-I_4", "AIzaSyB4ZlvsRRVP6pSFNmDfqvSjtUhKG3atl2w"];
+        const MODELS = ["gemini-3-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
+
+        // 頁面切換邏輯
+        function showPage(page) {
+            document.querySelectorAll('.page-content').forEach(p => p.classList.add('hidden'));
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(`page-${page}`).classList.remove('hidden');
+            document.getElementById(`btn-${page}`).classList.add('active');
+        }
+
+        // 瘦身數據同步
+        db.on('value', (s) => {
+            if(s.val()) {
+                dietData = s.val();
+                renderSlim();
+            }
+        });
+
+        function renderSlim() {
+            const container = document.getElementById('slim-app-content');
+            container.innerHTML = '';
+            let currentBonus = 0;
+            
+            dietData.weeks.forEach((w, i) => {
+                if(!w.failed) currentBonus += parseInt(dietData.weekBonus);
+                const div = document.createElement('div');
+                div.className = 'card';
+                div.innerHTML = `<b>第 ${i+1} 週</b> - <small>${w.dateRange}</small>
+                                <div style="display:flex; gap:5px; margin:10px 0;">${renderDots(w.history)}</div>`;
+                container.appendChild(div);
+            });
+            document.getElementById('totalBonus').innerText = `$${currentBonus}`;
+            document.getElementById('totalFine').innerText = `$${dietData.totalFine}`;
+        }
+
+        function renderDots(history = []) {
+            let html = '';
+            for(let i=0; i<7; i++) {
+                const status = history[i] || '';
+                html += `<div class="day-dot ${status}">${status==='success'?'✓':status==='cheat'?'✕':''}</div>`;
+            }
+            return html;
+        }
+
+        // 晚餐 AI 邏輯 (強化版金鑰調用)
+        async function askAI() {
+            const resArea = document.getElementById('dinner-result');
+            const logArea = document.getElementById('ai-log');
+            resArea.innerHTML = "<p>正在呼叫 AI 頻道...</p>";
+            
+            let success = false;
+            for (let key of KEYS) {
+                for (let model of MODELS) {
+                    try {
+                        logArea.innerText = `嘗試使用: ${model}...`;
+                        const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ contents: [{ parts: [{ text: "推薦3個超商減脂晚餐，高蛋白，格式用 HTML div" }] }] })
+                        });
+                        if (resp.ok) {
+                            const data = await resp.json();
+                            resArea.innerHTML = data.candidates[0].content.parts[0].text.replace(/```html|```/g, "");
+                            success = true; break;
+                        }
+                    } catch (e) {}
+                }
+                if (success) break;
+            }
+            if (!success) resArea.innerHTML = "❌ 所有金鑰均失效，請確認 Google AI Studio 權限。";
+        }
+    </script>
+</body>
+</html>
