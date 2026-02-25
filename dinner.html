@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>寶貝晚餐</title>
+    <style>
+        body { font-family: sans-serif; background: #fdf2f2; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .nav-container { display: flex; gap: 12px; margin-bottom: 25px; }
+        .nav-btn { padding: 10px 24px; border-radius: 25px; font-weight: bold; cursor: pointer; border: none; text-decoration: none; background: white; color: #888; border: 1px solid #eee; }
+        .nav-active { background: #ff6b6b !important; color: white !important; }
+        .card { background: white; border-radius: 20px; padding: 25px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); width: 100%; max-width: 400px; text-align: center; }
+        .go-btn { background: #000; color: white; width: 100%; padding: 15px; border-radius: 15px; border: none; font-weight: bold; margin-top: 15px; cursor: pointer; }
+        .result { text-align: left; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="nav-container">
+        <a href="index.html" class="nav-btn">📋 瘦身計劃</a>
+        <a href="dinner.html" class="nav-btn nav-active">🍽️ 寶貝晚餐</a>
+    </div>
+
+    <div class="card">
+        <h2>🍽️ 晚餐吃什麼？</h2>
+        <div id="result" class="result"></div>
+        <button class="go-btn" id="btn" onclick="askAI()">🚀 幫我準備清單</button>
+    </div>
+
+    <script>
+        const KEYS = ["AIzaSyBpW9OBq7lr_CPauCfsZi2TACR2nRr-I_4", "AIzaSyB4ZlvsRRVP6pSFNmDfqvSjtUhKG3atl2w"];
+        
+        async function askAI() {
+            const resArea = document.getElementById('result');
+            resArea.innerHTML = "思考中...";
+            document.getElementById('btn').disabled = true;
+
+            let success = false;
+            // 嘗試不同型號與金鑰
+            for (let key of KEYS) {
+                try {
+                    const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        referrerPolicy: "no-referrer", // 👈 關鍵修正：避免金鑰被攔截
+                        body: JSON.stringify({ contents: [{ parts: [{ text: "推薦3個超商減脂晚餐。請用繁體中文。" }] }] })
+                    });
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        resArea.innerHTML = data.candidates[0].content.parts[0].text;
+                        success = true; break;
+                    }
+                } catch (e) { console.error(e); }
+            }
+            if(!success) resArea.innerHTML = "❌ 連線失敗，請檢查金鑰限制。";
+            document.getElementById('btn').disabled = false;
+        }
+    </script>
+</body>
+</html>
